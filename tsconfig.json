@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"allowJs": true,
+		"esModuleInterop": true,
+		"lib": [ "es2019", "es2020", "DOM" ],
+		"module": "ESNext",
+		"moduleResolution": "node",
+		"noEmit": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"target": "ES2020",
+		"types": [ "@types/jest", "@types/node" ],
+		"noErrorTruncation": true,
+		"resolveJsonModule": true
+	},
+	"include": ["src", "test"]
+}
