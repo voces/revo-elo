@@ -1,16 +1,18 @@
-/* eslint-disable no-console */
-import { writeFile } from "fs/promises";
-import fetch from "node-fetch";
+import { readFile, writeFile } from "fs/promises";
 
-const fetchPage = (page: number) =>
-	fetch(
-		`https://api.wc3stats.com/replays&chat=1&search=sheep%20tag&page=${page}&limit=100&sort=playedOn&order=desc`,
-	).then((r) => r.json());
+import { fetchPage } from "./fetch.js";
+import { ListReplay } from "./types.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const revos: any[] = [];
+let replays: Record<string, ListReplay>;
+try {
+	replays = JSON.parse(await readFile("data/replays.json", "utf-8"));
+	console.log("had", Object.keys(replays).length);
+} catch (err) {
+	replays = {};
+}
 
 const iterate = async (pageNumber: number) => {
+	console.log("Fetching", pageNumber);
 	const page = await fetchPage(pageNumber);
 	const games = page.body;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,22 +21,14 @@ const iterate = async (pageNumber: number) => {
 		const variant = (game.variant ?? "").replace(/ /g, "").toLowerCase();
 		const isRevo =
 			map.includes("revolution") || variant.includes("revolution");
-		if (isRevo && game.processed && !game.isVoid) revos.push(game);
+		if (isRevo && game.processed && !game.isVoid) replays[game.id] = game;
 	});
-	delete page.body;
-	console.log("Finished", page.pagination.current);
-	if (page.pagination.next > page.pagination.current) {
-		console.log("Fetching", page.pagination.next);
+	if (page.pagination.next > page.pagination.current)
 		await iterate(pageNumber + 1);
-	} else console.log("Done");
+	else console.log("Done");
 };
 
-await iterate(1);
-writeFile(
-	"data/game.json",
-	JSON.stringify(
-		revos.map((g) => ({ id: g.id })),
-		null,
-		2,
-	),
-);
+await iterate(38);
+writeFile("data/replays.json", JSON.stringify(replays, null, 2));
+
+console.log("have", Object.keys(replays).length);

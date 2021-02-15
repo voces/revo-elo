@@ -4,5 +4,6 @@ module.exports = {
 	settings: { react: { version: "17" } },
 	rules: {
 		"@typescript-eslint/prefer-nullish-coalescing": "error",
+		"no-console": "off"
 	}
 };

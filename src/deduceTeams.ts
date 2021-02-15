@@ -27,7 +27,6 @@ export const deduceTeams = (
 	playerIds: number[],
 	round: string,
 ): [number[], number[]] | undefined => {
-	// console.log(round);
 	const possibilities: {
 		team: "sheep" | "wolf";
 		cursor: number;
@@ -40,7 +39,6 @@ export const deduceTeams = (
 	);
 	while (possibilityIndex >= 0) {
 		const possibility = possibilities[possibilityIndex];
-		// console.log(possibilityIndex, possibility, possibilities);
 		possibilities.splice(possibilityIndex, 1);
 		const oneCharSlot = parseInt(round[possibility.cursor]);
 		const twoCharSlice = round.slice(
@@ -112,15 +110,8 @@ export const deduceTeams = (
 		possibilityIndex = possibilities.findIndex(
 			(p) => p.cursor < round.length,
 		);
-
-		// console.log(possibilityIndex, possibilities);
 	}
 
-	// console.log(possibilities);
 	if (possibilities.length === 1)
-		// console.log("returning", [
-		// 	possibilities[0].sheep,
-		// 	possibilities[0].wolves,
-		// ]);
 		return [possibilities[0].sheep, possibilities[0].wolves];
 };

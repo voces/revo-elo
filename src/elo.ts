@@ -1,81 +1,34 @@
 import { readFile } from "fs/promises";
 
-interface Match {
-	sheep: string[];
-	wolves: number[];
-	time: number;
-	playedOn: number;
-}
+// import { processReplay, temp } from "./processReplay.js";
+import { processReplay } from "./processReplay.js";
+import { avg, data, ModeData } from "./processRound.js";
+import { ListReplay } from "./types.js";
 
-const matches = (JSON.parse(
-	await readFile("data/matches.json", "utf-8"),
-) as Match[])
-	.filter((match) => match.sheep.length === 2 && match.wolves.length === 4)
-	.sort((a, b) => a.playedOn - b.playedOn);
+const replays = ((Object.values(
+	JSON.parse(await readFile("data/replays.json", "utf-8")),
+) as any) as ListReplay[]).sort((a, b) => a.playedOn - b.playedOn);
 
-const elos: Record<string, { rating: number; games: number } | undefined> = {};
+// console.log(replays);
+// console.log(replays.map((r) => new Date(r.playedOn * 1000)).slice(-100));
 
-const avg = (a: number, b: number, _: number, arr: number[]) =>
-	a + b / arr.length;
+// if (!temp.processedARound)
+for (const replay of replays) await processReplay(replay);
 
-const K = 32;
-const TRAILING_AVERAGE_ROUNDS = 25;
-
-// Seed with global average
-let trailingAverage = 86.47;
-
-for (const match of matches) {
-	const sheepElo = match.sheep
-		.map((p) => elos[p]?.rating ?? 1000)
-		.reduce(avg, 0);
-	const wolfElo = match.wolves
-		.map((p) => elos[p]?.rating ?? 1000)
-		.reduce(avg, 0);
-
-	const sheepRating = Math.pow(10, sheepElo / 400);
-	const wolfRating = Math.pow(10, wolfElo / 400);
-
-	const expectedSheepWin = sheepRating / (sheepRating + wolfRating);
-	const expectedWolfWin = 1 - expectedSheepWin;
-
-	const sheepWon = match.time > trailingAverage ? 1 : 0;
-
-	match.sheep.forEach(
-		(p) =>
-			(elos[p] = {
-				rating:
-					(elos[p]?.rating ?? 1000) +
-					K * (sheepWon ? 1 - expectedSheepWin : -expectedSheepWin),
-				games: (elos[p]?.games ?? 0) + 1,
-			}),
-	);
-	match.wolves.forEach(
-		(p) =>
-			(elos[p] = {
-				rating:
-					(elos[p]?.rating ?? 1000) +
-					(K / 2) *
-						(sheepWon ? -expectedWolfWin : 1 - expectedWolfWin),
-				games: (elos[p]?.games ?? 0) + 1,
-			}),
-	);
-
-	trailingAverage =
-		trailingAverage *
-			((TRAILING_AVERAGE_ROUNDS - 1) / TRAILING_AVERAGE_ROUNDS) +
-		match.time * (1 / TRAILING_AVERAGE_ROUNDS);
-	console.log(trailingAverage);
-}
-
-Object.entries(elos)
-	.sort((a, b) => b[1]!.rating - a[1]!.rating)
-	// .filter((p) => p[1]!.games >= 50)
-	.forEach((p) => console.log(p));
-
-console.log(
-	Object.values(elos)
-		.map((r) => r!.rating)
-		.reduce(avg, 0),
-);
-
-console.log(matches.length);
+Object.entries(data)
+	.sort((a, b) => a[0].localeCompare(b[0]))
+	.forEach(([mode, { matches, players }]: [string, ModeData]) => {
+		console.log("=".repeat(20) + mode + "=".repeat(20));
+		Object.entries(players)
+			.sort((a, b) => b[1]!.rating - a[1]!.rating)
+			// .filter((p) => p[1]!.matches >= 5)
+			.forEach((p) => console.log(p));
+		console.log(
+			"average elo:",
+			Object.values(players)
+				.map((r) => r!.rating)
+				.reduce(avg, 0),
+		);
+		console.log("matches:", matches);
+		// })(["2v4", data["2v4"]]);
+	});
