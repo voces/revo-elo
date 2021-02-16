@@ -27,12 +27,15 @@
     "jest": "jest --silent",
     "test": "jest",
     "test-debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
-	"fetch-game-list": "node --loader ts-node/esm src/fetchGameList.ts",
-	"build-matches": "node --loader ts-node/esm src/buildMatches.ts",
-	"elo": "node --loader ts-node/esm src/elo.ts"
+    "fetch-game-list": "node --loader ts-node/esm src/fetchGameList.ts",
+    "build-matches": "node --loader ts-node/esm src/buildMatches.ts",
+    "elo": "node --loader ts-node/esm src/elo.ts"
   },
   "author": "verit",
   "license": "ISC",
   "type": "module",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "mysql2": "^2.2.5"
+  }
 }

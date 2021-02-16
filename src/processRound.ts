@@ -1,45 +1,88 @@
 import { LOG } from "./processReplay.js";
+import { query } from "./sql.js";
 import { Round } from "./types";
 
-export interface ModeData {
-	players: Record<string, { rating: number; matches: number } | undefined>;
+export interface PlayerData {
+	rating: number;
 	matches: number;
+	timeline: [number, number][];
+}
+
+export interface Season {
+	players: Record<string, PlayerData | undefined>;
+	matches: number;
+}
+
+export interface ModeData {
+	seasons: Record<string, Season | undefined>;
 	trailingMatchTimes: number[];
 }
 
-const emptyModeData = () => ({
-	players: {},
-	matches: 0,
-	trailingMatchTimes: Array(99).fill(100),
+type Data = Record<string, ModeData>;
+
+const TRAILING_MATCH_TIMES_LENGTH = 99;
+
+const emptyModeData = (): ModeData => ({
+	seasons: {},
+	trailingMatchTimes: [],
 });
 
-export const data: Record<string, ModeData> = {};
+const emptySeason = (): Season => ({
+	players: {},
+	matches: 0,
+});
+
+const getSeason = (unix: number) => {
+	const d = new Date(unix * 1000);
+	const q = Math.floor(d.getMonth() / 3) + 1;
+	const y = d.getFullYear();
+	return `${y}Q${q}`;
+};
+
+export const data: Data = {};
 const queryData = async (
 	mode: string,
 	sheep: string[],
 	wolves: string[],
+	playedOn: number,
 ): Promise<{
-	elos: Record<string, number>;
+	players: Record<string, { rating: number; matches: number }>;
 	trailingMatchTimes: number[];
 }> => {
 	if (mode === "team") {
 		const mode = `${sheep.length}v${wolves.length}`;
-		const sheepModeData = await queryData(`${mode}-sheep`, sheep, []);
-		const wolfModeData = await queryData(`${mode}-wolf`, [], wolves);
-		const modeData = await queryData(mode, [], []);
+		const sheepModeData = await queryData(
+			`${mode}-sheep`,
+			sheep,
+			[],
+			playedOn,
+		);
+		const wolfModeData = await queryData(
+			`${mode}-wolf`,
+			[],
+			wolves,
+			playedOn,
+		);
+		const modeData = await queryData(mode, [], [], playedOn);
 
 		return {
-			elos: { ...sheepModeData.elos, ...wolfModeData.elos },
+			players: { ...sheepModeData.players, ...wolfModeData.players },
 			trailingMatchTimes: [...modeData.trailingMatchTimes],
 		};
 	}
 
 	const modeData = data[mode] ?? (data[mode] = emptyModeData());
+	const season = getSeason(playedOn);
+	const seasonData =
+		modeData.seasons[season] ?? (modeData.seasons[season] = emptySeason());
 	return {
-		elos: Object.fromEntries(
+		players: Object.fromEntries(
 			[...sheep, ...wolves].map((p) => [
 				p,
-				modeData.players[p]?.rating ?? 1000,
+				{
+					rating: seasonData.players[p]?.rating ?? 1000,
+					matches: seasonData.players[p]?.matches ?? 0,
+				},
 			]),
 		),
 		trailingMatchTimes: [...modeData.trailingMatchTimes],
@@ -52,31 +95,49 @@ const updateData = async (
 	wolves: string[],
 	inputElos: Record<string, number>,
 	matchTime: number,
+	playedOn: number,
 ) => {
 	const setup = `${sheep.length}v${wolves.length}`;
+	const season = getSeason(playedOn);
 	if (mode === "team") {
 		const sheepModeData =
 			data[`${setup}-sheep`] ??
 			(data[`${setup}-sheep`] = emptyModeData());
-		sheep.forEach(
-			(p) =>
-				(sheepModeData.players[p] = {
-					rating: inputElos[p],
-					matches: (sheepModeData.players[p]?.matches ?? 0) + 1,
-				}),
-		);
-		sheepModeData.matches++;
+		const sheepSeasonData =
+			sheepModeData.seasons[season] ??
+			(sheepModeData.seasons[season] = emptySeason());
+		sheep.forEach((p) => {
+			sheepSeasonData.players[p] = {
+				rating: inputElos[p],
+				matches: (sheepSeasonData.players[p]?.matches ?? 0) + 1,
+				timeline: [
+					...(sheepSeasonData.players[p]?.timeline ?? []),
+					[playedOn, inputElos[p]],
+				],
+			};
+			// await query(
+			// 	"INSERT INTO elo.outcome (replayId, round, player, rating) VALUES ()",
+			// );
+		});
+		sheepSeasonData.matches++;
 
 		const wolfModeData =
 			data[`${setup}-wolf`] ?? (data[`${setup}-wolf`] = emptyModeData());
+		const wolfSeasonData =
+			wolfModeData.seasons[season] ??
+			(wolfModeData.seasons[season] = emptySeason());
 		wolves.forEach(
 			(p) =>
-				(wolfModeData.players[p] = {
+				(wolfSeasonData.players[p] = {
 					rating: inputElos[p],
-					matches: (wolfModeData.players[p]?.matches ?? 0) + 1,
+					matches: (wolfSeasonData.players[p]?.matches ?? 0) + 1,
+					timeline: [
+						...(wolfSeasonData.players[p]?.timeline ?? []),
+						[playedOn, inputElos[p]],
+					],
 				}),
 		);
-		wolfModeData.matches++;
+		wolfSeasonData.matches++;
 
 		// We don't care about matchTime since that should be handled by other runs
 
@@ -84,20 +145,27 @@ const updateData = async (
 	}
 
 	const modeData = data[mode];
+	const seasonData =
+		modeData.seasons[season] ?? (modeData.seasons[season] = emptySeason());
 	Object.entries(inputElos).forEach(([p, elo]) => {
-		modeData.players[p] = {
+		seasonData.players[p] = {
 			rating: elo,
-			matches: (modeData.players[p]?.matches ?? 0) + 1,
+			matches: (seasonData.players[p]?.matches ?? 0) + 1,
+			timeline: [
+				...(seasonData.players[p]?.timeline ?? []),
+				[playedOn, inputElos[p]],
+			],
 		};
 	});
 
 	if (mode === setup) {
-		modeData.trailingMatchTimes.shift();
+		if (modeData.trailingMatchTimes.length === TRAILING_MATCH_TIMES_LENGTH)
+			modeData.trailingMatchTimes.shift();
 		modeData.trailingMatchTimes.push(matchTime);
 	}
-	modeData.matches++;
+	seasonData.matches++;
 };
-const K = 32;
+const K = 16;
 
 export const avg = (a: number, b: number, _: number, arr: number[]): number =>
 	a + b / arr.length;
@@ -160,12 +228,10 @@ export const reverseTween = (data: number[], value: number): number => {
 	);
 };
 
-const processRoundForMode = async ({
-	mode,
-	sheep,
-	wolves,
-	time,
-}: Round & { mode: string }) => {
+const processRoundForMode = async (
+	{ mode, sheep, wolves, time }: Round & { mode: string },
+	playedOn: number,
+) => {
 	let maxTime: number;
 	try {
 		maxTime = getMaxTime(`${sheep.length}v${wolves.length}`);
@@ -173,9 +239,19 @@ const processRoundForMode = async ({
 		return;
 	}
 
-	const { elos, trailingMatchTimes } = await queryData(mode, sheep, wolves);
-	const sheepElo = sheep.map((p) => elos[p]).reduce(avg, 0);
-	const wolfElo = wolves.map((p) => elos[p]).reduce(avg, 0);
+	const { players, trailingMatchTimes } = await queryData(
+		mode,
+		sheep,
+		wolves,
+		playedOn,
+	);
+	const sheepElo = sheep.map((p) => players[p].rating).reduce(avg, 0);
+	const wolfElo = wolves.map((p) => players[p].rating).reduce(avg, 0);
+	const avgMatches = Object.values(players)
+		.map((d) => d.matches)
+		.reduce(avg, 0);
+	const factor = 2 / ((avgMatches + 1) / 8) ** (1 / 4);
+	// if (sheepElo === 1000 && wolfElo === 1000) console.log(mode, sheep, wolves);
 
 	const sheepRating = Math.pow(10, sheepElo / 400);
 	const wolfRating = Math.pow(10, wolfElo / 400);
@@ -192,11 +268,14 @@ const processRoundForMode = async ({
 	// const expectedTime = sortedMatches[Math.floor(sortedMatches.length / 2)];
 	// const sheepWon = time > expectedTime ? 1 : 0;
 
-	const sheepChange = K * (sheepScore - expectedSheepScore);
-	sheep.forEach((p) => (elos[p] += sheepChange));
+	const sheepChange = K * factor * (sheepScore - expectedSheepScore);
+	sheep.forEach((p) => (players[p].rating += sheepChange));
 	const wolfChange =
-		K * (sheep.length / wolves.length) * (wolfScore - expectedWolfScore);
-	wolves.forEach((p) => (elos[p] += wolfChange));
+		K *
+		factor *
+		(sheep.length / wolves.length) *
+		(wolfScore - expectedWolfScore);
+	wolves.forEach((p) => (players[p].rating += wolfChange));
 
 	if (LOG)
 		console.log("round", {
@@ -209,21 +288,30 @@ const processRoundForMode = async ({
 			wolfChange,
 		});
 
-	// console.log(elos);
-
-	// if (sheepRating > 1200 && wolfRating > 1200)
-	// 	console.log(mode, sheep, wolves, sheepRating, wolfRating);
-
-	await updateData(mode, sheep, wolves, elos, time);
+	await updateData(
+		mode,
+		sheep,
+		wolves,
+		Object.fromEntries(
+			Object.entries(players).map(([player, data]) => [
+				player,
+				data.rating,
+			]),
+		),
+		time,
+		playedOn,
+	);
 };
 
-export const processRound = async ({
-	sheep,
-	wolves,
-	time,
-}: Round): Promise<void> => {
+export const processRound = async (
+	{ sheep, wolves, time }: Round,
+	playedOn: number,
+): Promise<void> => {
 	const mode = `${sheep.length}v${wolves.length}`;
-	await processRoundForMode({ mode, sheep, wolves, time });
-	await processRoundForMode({ mode: "overall", sheep, wolves, time });
-	await processRoundForMode({ mode: "team", sheep, wolves, time });
+	await processRoundForMode({ mode, sheep, wolves, time }, playedOn);
+	await processRoundForMode(
+		{ mode: "overall", sheep, wolves, time },
+		playedOn,
+	);
+	await processRoundForMode({ mode: "team", sheep, wolves, time }, playedOn);
 };
